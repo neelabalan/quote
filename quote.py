@@ -2,9 +2,21 @@ import random
 import pathlib
 import datetime
 import shutil
+import sys
+import os
+import subprocess
+import tempfile
+import string
+from typing import Optional
+
+JSONEXT = '.json'
+TOMLEXT = '.toml'
+command = string.Template('$editor $filename')
+
 
 import jsondb
 
+import toml
 from rich.console import Console
 from rich.panel import Panel
 
@@ -16,6 +28,24 @@ color = "white"
 
 columns = shutil.get_terminal_size().columns - 6
 
+# template
+'''
+[[-]]
+quote = ''
+author = ''
+reference = ''
+tags = []
+'''
+quotes_template = {
+	'-': [
+		{
+			'quote': '',
+			'author': '',
+			'reference': '',
+			'tags': []
+		}
+	]
+}
 
 def display_quote(quote):
     console.print(
@@ -30,26 +60,53 @@ def display_quote(quote):
         style=color,
     )
 
+def environ_present(key='EDITOR'):
+	return key in os.environ
+
+def open_temp_toml_file():
+	if environ_present('EDITOR'):
+		editor = os.environ['EDITOR']
+		fd, filename = tempfile.mkstemp(suffix=TOMLEXT, text=True)
+		with open(filename, 'w') as file:
+			toml.dump(quotes_template, file)
+		write_status = subprocess.call(
+			command.substitute(editor=editor, filename=filename), 
+			shell=True
+		)
+		if write_status != 0:
+			os.remove(filename)
+		return filename, write_status
+	else:
+		raise Exception('EDITOR not found in env')
 
 @app.command()
 def add():
-    quote = input("quote: ")
-    author = input("author: ") or "anonymous"
-    reference = input("reference: ") or "unknown"
-    tags = input("tags: ") or "default"
-    db.insert(
-        [
-            {
-                "quote": quote,
-                "author": author,
-                "reference": reference,
-                "tags": list(map(str.strip, tags.split(","))),
-                "added_date": str(datetime.datetime.now()),
-            }
-        ]
-    )
-    db.dump()
-
+	filetype = '.toml'
+	filename, status = open_temp_toml_file()
+	default_author = 'Anonymous'
+	default_reference = 'Unknown'
+	total_quotes = 0
+	if status == 0:
+		with open(filename, 'r') as file:
+			quotes = toml.load(file)
+			total_quotes = len(quotes.get('-'))
+			for quote in quotes.get('-'):
+				if not quote.get('quote'):
+					console.print('[red bold]quote not added')
+					sys.exit()
+				db.insert(
+					[
+						{
+							"quote": quote.get('quote'),
+							"author": quote.get('author') or default_author,
+							"reference": quote.get('reference') or default_reference,
+							"tags": quote.get('tags'),
+							"added_date": str(datetime.datetime.now()),
+						}
+					]
+				)
+		db.dump()
+		console.print('[green bold]{} {} added'.format(total_quotes, 'quote' if total_quotes==1 else 'quotes'))
 
 @app.command("list")
 def ls(order: str, val: int = typer.Argument("10")):
