@@ -15,19 +15,15 @@ from jsondb import DuplicateEntryError
 import typer
 import toml
 from rich.console import Console
-from rich.panel import Panel
 
 
-JSONEXT = ".json"
-TOMLEXT = ".toml"
 command = string.Template("$editor $filename")
+date_format = "%a %d %b %Y %X"
 
 
 app = typer.Typer()
 console = Console()
-color = "white"
 
-columns = shutil.get_terminal_size().columns - 6
 
 # template
 """
@@ -41,16 +37,15 @@ quotes_template = {"-": [{"quote": "", "author": "", "reference": "", "tags": []
 
 
 def display_quote(quote):
+    console.print("\n\n")
     console.print(
-        Panel(
-            """[{color}]{}[/{color}]\n\n[italic {color}]{}\n{}[/italic {color}]""".format(
-                quote.get("quote"),
-                quote.get("author").rjust(columns, " "),
-                quote.get("reference").rjust(columns, " "),
-                color=color,
-            ),
+        "“{quote}” ── [yellow]{author}[/]\n\n [blue]({reference})[/]\n\n[grey46]{date}[/]\n\n".format(
+            quote=quote.get("quote"),
+            author=quote.get("author"),
+            reference=quote.get("reference") or "Unknown",
+            date=quote.get("added_date") or "",
         ),
-        style=color,
+        justify="center",
     )
 
 
@@ -61,7 +56,7 @@ def environ_present(key="EDITOR"):
 def open_temp_toml_file():
     if environ_present("EDITOR"):
         editor = os.environ["EDITOR"]
-        fd, filename = tempfile.mkstemp(suffix=TOMLEXT, text=True)
+        fd, filename = tempfile.mkstemp(suffix=".toml", text=True)
         with open(filename, "w") as file:
             toml.dump(quotes_template, file)
         write_status = subprocess.call(
@@ -81,15 +76,17 @@ def insert(quotes):
             console.print("[red bold]quote not added")
             sys.exit()
         try:
-            db.insert([
-				{
-					"quote": quote.get("quote"),
-					"author": quote.get("author") or "anonymous",
-					"reference": quote.get("reference") or "unknown",
-					"tags": quote.get("tags"),
-					"added_date": str(datetime.datetime.now()),
-				}
-			])
+            db.insert(
+                [
+                    {
+                        "quote": quote.get("quote"),
+                        "author": quote.get("author") or "anonymous",
+                        "reference": quote.get("reference") or "unknown",
+                        "tags": quote.get("tags"),
+                        "added_date": datetime.datetime.now().strftime(date_format),
+                    }
+                ]
+            )
         except DuplicateEntryError as e:
             console.print("[red]Duplicate quote found")
             sys.exit()
@@ -112,16 +109,20 @@ def new():
 
 
 @app.command()
-def ls(order: str = typer.Argument("first"), val: int = typer.Argument(10)):
-    if order not in ["first", "last"]:
-        raise Exception('order has to be either "first" or "last"')
+def ls(order: str = typer.Argument("recent"), val: int = typer.Argument(10)):
+    if order not in ["recent", "past"]:
+        raise Exception("order has to be either (recent | past)")
     all_quotes = db.find(lambda x: True)
-    ordered_latest = sorted(all_quotes, key=lambda i: i["added_date"], reverse=True)
-    if order == "first":
-        for quote in all_quotes[:val]:
+    ordered_latest = sorted(
+        all_quotes,
+        key=lambda i: datetime.datetime.strptime(i["added_date"], date_format),
+        reverse=True,
+    )
+    if order == "recent":
+        for quote in ordered_latest[:val]:
             display_quote(quote)
     else:
-        for quote in all_quotes[-val:]:
+        for quote in ordered_latest[-val:]:
             display_quote(quote)
 
 
