@@ -3,10 +3,11 @@
 ## usage
 
 ```bash
-quote add
+quote new
 quote random
-quote list first 3
-quote list last 3
+quote ls
+quote ls first 3
+quote ls last 3
 quote tag books
 quote author 'Mark Twain'
 ```
